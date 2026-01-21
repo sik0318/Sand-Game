@@ -10,19 +10,16 @@
         #lobby { background: white; padding: 20px; border-radius: 15px; max-width: 400px; margin: 50px auto; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
         .rule-box { background: #fffde7; padding: 15px; border: 1px solid #ffe082; text-align: left; font-size: 0.9rem; margin-bottom: 20px; line-height: 1.6; }
         
-        /* [2번] 화면 중앙 배치 */
         #game-screen { display: none; height: 100vh; position: relative; }
         #center-container { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); }
         
         #sand { width: 220px; background: #edc9af; margin: 0 auto; transition: height 0.5s; border-radius: 110px 110px 0 0; position: relative; z-index: 2; }
-        #stick { width: 10px; height: 160px; background: #8b4513; position: absolute; bottom: 90%; left: 105px; border-radius: 5px; transition: transform 0.1s; transform-origin: bottom; z-index: 3; }
+        #stick { width: 10px; height: 160px; background: #8b4513; position: absolute; bottom: 90%; left: 105px; border-radius: 5px; transition: transform 0.05s; transform-origin: bottom; z-index: 3; }
         
-        /* [3번] 손 애니메이션 */
         #hand { position: absolute; font-size: 50px; display: none; z-index: 10; transition: all 0.6s; }
-        @keyframes sweep { 0% { transform: translateX(100px); opacity: 0; } 50% { opacity: 1; } 100% { transform: translateX(-100px); opacity: 0; } }
         .hand-anim { display: block !important; animation: sweep 0.8s forwards; }
+        @keyframes sweep { 0% { transform: translateX(100px); opacity: 0; } 50% { opacity: 1; } 100% { transform: translateX(-100px); opacity: 0; } }
 
-        /* [4번] 확률 그라데이션 바 */
         #prob-bar { width: 200px; height: 15px; margin: 20px auto; border-radius: 10px; background: linear-gradient(to right, blue, red); border: 2px solid white; position: relative; }
         #prob-pointer { position: absolute; top: -5px; width: 4px; height: 25px; background: black; transition: left 0.5s; }
 
@@ -30,8 +27,10 @@
         .active-turn { color: red; font-weight: bold; background: #ffeb3b; }
         .controls { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); width: 85%; z-index: 100; }
         
-        button { padding: 15px 30px; font-size: 18px; background: #d2691e; color: white; border: none; border-radius: 10px; cursor: pointer; }
-        #msg { position: fixed; top: 80px; width: 100%; font-size: 22px; font-weight: bold; }
+        button { padding: 10px 20px; font-size: 16px; background: #d2691e; color: white; border: none; border-radius: 10px; cursor: pointer; margin: 5px; }
+        #msg { position: fixed; top: 80px; width: 100%; font-size: 22px; font-weight: bold; padding: 0 10px; box-sizing: border-box; }
+        #restart-area { display: none; margin-top: 20px; }
+        .small-btn { font-size: 14px; background: #5d4037; }
     </style>
 </head>
 <body>
@@ -39,11 +38,10 @@
     <div id="lobby">
         <h2>⏳ 모래성 게임</h2>
         <div class="rule-box">
-            <b>📜 게임 규칙 (필독):</b><br>
+            <b>📜 게임 규칙:</b><br>
             1. 자기 차례에 모래를 1~10만큼 가져옵니다.<br>
-            2. 모래가 줄수록 막대가 쓰러질 확률이 높아집니다.<br>
-            3. 각자 5번의 차례가 지날 때까지 막대가 안 쓰러지면, 모래를 가장 적게 가져간 사람이 패배합니다!</b><br>
-            4. ⚠️ 주의: 절대 새로고침 하지 마세요!</b> (연결이 끊깁니다)
+            2. [7번] 5바퀴가 돈 후에도 막대가 안 쓰러지면, 모래를 제일 조금 가져간 플레이어가 패배합니다!<br>
+            3. [8번] ⚠️ <b>절대 새로고침 하지 마세요!</b> (재입장 불가)
         </div>
         <div id="login-area">
             <input type="text" id="name-input" placeholder="이름 입력" style="padding:10px; width:60%;">
@@ -51,7 +49,7 @@
         </div>
         <div id="waiting-area" style="display:none;">
             <div id="player-list"></div>
-            <button id="start-btn" style="display:none; margin-top:15px;" onclick="socket.emit('startGame')">게임 시작!</button>
+            <button id="start-btn" style="display:none;" onclick="socket.emit('startGame', 'all')">게임 시작!</button>
         </div>
     </div>
 
@@ -62,8 +60,12 @@
         <div id="center-container">
             <div id="hand">✋</div>
             <div id="sand"><div id="stick"></div></div>
-            <div id="prob-bar"><div id="prob-pointer" id="pointer"></div></div>
-            <div style="font-size: 12px; color: #666;">넘어질 확률 (안전 ↔ 위험)</div>
+            <div id="prob-bar"><div id="prob-pointer"></div></div>
+            
+            <div id="restart-area">
+                <button class="small-btn" onclick="socket.emit('startGame', 'all')">전원 다시하기</button>
+                <button class="small-btn" onclick="socket.emit('startGame', 'excludeLoser')">패배자 제외하고 하기</button>
+            </div>
         </div>
         
         <div class="controls" id="ui" style="display:none;">
@@ -88,34 +90,37 @@
 
         socket.on('playerUpdate', (ps) => {
             document.getElementById('player-list').innerHTML = ps.map(p => `<div>👤 ${p.name}</div>`).join('');
-            if(ps[0].id === socket.id) document.getElementById('start-btn').style.display = 'inline-block';
+            if(ps.length > 0 && ps[0].id === socket.id) {
+                document.getElementById('start-btn').style.display = 'inline-block';
+            }
         });
 
         socket.on('gameBegin', (data) => {
             totalS = data.totalSand;
             document.getElementById('lobby').style.display = 'none';
+            document.getElementById('restart-area').style.display = 'none';
             document.getElementById('game-screen').style.display = 'block';
             updateUI(data.sand, data.currentTurn, data.order);
         });
 
         socket.on('updateState', (data) => {
-            // [3번] 손 애니메이션 실행
             const hand = document.getElementById('hand');
             hand.className = 'hand-anim';
             setTimeout(() => { hand.className = ''; }, 800);
             
-            // [9번] 긴장감 있는 흔들림 연출
+            // [1번] 떨리는 시간 2배 증가 (shakeStick 함수 내 count 조절)
             shakeStick(data.chance);
             
             setTimeout(() => {
                 updateUI(data.sand, data.currentTurn);
-            }, 1000);
+            }, 1800); // 떨림이 길어졌으므로 UI 업데이트 대기도 늘림
         });
 
         function shakeStick(chance) {
             const stick = document.getElementById('stick');
-            const shakeCount = 5 + (chance * 20); // 확률 높을수록 더 많이 흔들림
-            const intensity = 2 + (chance * 15);  // 확률 높을수록 더 크게 흔들림
+            // [1번] 떨림 횟수(count)를 이전보다 2배 늘림
+            const shakeCount = 20 + (chance * 40); 
+            const intensity = 2 + (chance * 15);
             
             let count = 0;
             const interval = setInterval(() => {
@@ -131,8 +136,6 @@
 
         function updateUI(sand, currentTurnId, order = null) {
             document.getElementById('sand').style.height = (sand * 1.5) + 'px';
-            
-            // [4번] 확률 포인터 위치 계산
             const chance = (totalS - sand) / totalS;
             document.getElementById('prob-pointer').style.left = (chance * 100) + '%';
 
@@ -152,11 +155,15 @@
         }
 
         socket.on('gameOver', (data) => {
-            document.getElementById('msg').innerHTML = `<span style="color:red">💥 패배: ${data.loserName}</span><br><small>${data.reason}</small><br><div style="font-size:14px; margin-top:10px;">${data.results}</div>`;
+            document.getElementById('msg').innerHTML = `<span style="color:red">💥 패배: ${data.loserName}</span><br><div style="font-size:14px; margin-top:10px; font-weight:normal;">${data.results}</div>`;
             document.getElementById('stick').style.transform = "rotate(90deg) translateY(50px)";
             document.getElementById('ui').style.display = 'none';
+            
+            // [2번] 방장에게만 다시하기 버튼 표시
+            if (data.hostId === socket.id) {
+                document.getElementById('restart-area').style.display = 'block';
+            }
         });
     </script>
 </body>
 </html>
-
