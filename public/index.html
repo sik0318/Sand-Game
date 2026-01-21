@@ -1,41 +1,132 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>모래성 게임</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>모래성 게임 - 멀티플레이</title>
     <script src="/socket.io/socket.io.js"></script>
     <style>
-        body { text-align: center; font-family: sans-serif; background: #fdf5e6; }
-        #sand { width: 200px; background: #edc9af; margin: 20px auto; transition: 0.5s; border-radius: 100px 100px 0 0; position: relative; }
-        #stick { width: 10px; height: 150px; background: #8b4513; position: absolute; bottom: 80%; left: 95px; transition: 0.5s; transform-origin: bottom; }
-        .controls { display: none; margin-top: 20px; }
-        button { padding: 10px 20px; font-size: 16px; background: #d2691e; color: white; border: none; border-radius: 5px; }
+        body { text-align: center; font-family: 'Malgun Gothic', sans-serif; background: #fdf5e6; margin: 0; padding: 10px; }
+        /* 대기실 스타일 */
+        #lobby { background: white; padding: 20px; border-radius: 15px; max-width: 400px; margin: 50px auto; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        .rule-box { background: #fffde7; padding: 10px; border: 1px solid #ffe082; text-align: left; font-size: 0.9rem; margin-bottom: 20px; }
+        /* 게임 화면 스타일 */
+        #game-screen { display: none; }
+        #sand { width: 180px; background: #edc9af; margin: 50px auto; transition: 0.5s; border-radius: 90px 90px 0 0; position: relative; }
+        #stick { width: 8px; height: 120px; background: #8b4513; position: absolute; bottom: 80%; left: 86px; transition: 0.5s; transform-origin: bottom; }
+        /* 순서 목록 스타일 */
+        #side-panel { position: fixed; top: 10px; right: 10px; background: rgba(255,255,255,0.9); padding: 10px; border-radius: 10px; text-align: left; font-size: 0.8rem; border: 1px solid #ddd; }
+        .active-turn { color: red; font-weight: bold; background: #ffeb3b; }
+        .controls { background: white; padding: 15px; border-radius: 15px; position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); width: 90%; max-width: 400px; box-shadow: 0 -2px 10px rgba(0,0,0,0.1); }
+        button { padding: 10px 20px; font-size: 16px; background: #d2691e; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        input[type=text] { padding: 10px; width: 70%; margin-bottom: 10px; border-radius: 5px; border: 1px solid #ccc; }
     </style>
 </head>
 <body>
-    <h2 id="msg">플레이어를 기다리는 중...</h2>
-    <button id="start-btn" style="display:none;" onclick="socket.emit('startGame')">게임 시작!</button>
-    <div id="sand"><div id="stick"></div></div>
-    <div class="controls" id="ui">
-        <input type="range" min="1" max="10" value="5" id="range" oninput="document.getElementById('v').innerText=this.value">
-        <p>가져갈 양: <span id="v">5</span></p>
-        <button onclick="socket.emit('takeSand', parseInt(document.getElementById('range').value))">가져오기</button>
+
+    <div id="lobby">
+        <h2>⏳ 모래성 게임 대기실</h2>
+        <div class="rule-box">
+            <b>📜 게임 규칙:</b><br>
+            1. 자기 차례에 모래를 1~10만큼 가져옵니다.<br>
+            2. 모래가 줄어들수록 나뭇가지가 쓰러질 확률이 높아집니다.<br>
+            3. 나뭇가지를 쓰러뜨리는 사람이 패배합니다!
+        </div>
+        <div id="login-area">
+            <input type="text" id="name-input" placeholder="이름을 입력하세요">
+            <button onclick="join()">입장하기</button>
+        </div>
+        <div id="waiting-area" style="display:none;">
+            <h4>현재 접속자:</h4>
+            <div id="player-list"></div>
+            <br>
+            <button id="start-btn" style="display:none;" onclick="socket.emit('startGame')">게임 시작하기!</button>
+            <p id="host-msg" style="color: #666; font-size: 0.8rem;"></p>
+        </div>
     </div>
+
+    <div id="game-screen">
+        <div id="side-panel">
+            <b>🏃 순서</b>
+            <div id="order-list"></div>
+        </div>
+        <h2 id="msg">준비하세요!</h2>
+        <div id="sand"><div id="stick"></div></div>
+        
+        <div class="controls" id="ui" style="display:none;">
+            <p>가져갈 양: <span id="v">5</span></p>
+            <input type="range" min="1" max="10" value="5" id="range" style="width:100%" oninput="document.getElementById('v').innerText=this.value">
+            <br><br>
+            <button onclick="take()">모래 가져오기</button>
+        </div>
+    </div>
+
     <script>
         const socket = io();
-        socket.on('playerUpdate', (p) => { if(p[0].id === socket.id) document.getElementById('start-btn').style.display = 'inline-block'; });
-        socket.on('gameBegin', (d) => update(d.sand, d.turn));
-        socket.on('updateState', (d) => update(d.sand, d.nextTurn));
-        function update(s, t) {
-            document.getElementById('sand').style.height = s + 'px';
-            document.getElementById('stick').style.transform = `rotate(${(100-s)/4}deg)`;
-            const myTurn = t === socket.id;
-            document.getElementById('msg').innerText = myTurn ? "내 차례!" : "상대 차례...";
-            document.getElementById('ui').style.display = myTurn ? 'block' : 'none';
-            document.getElementById('start-btn').style.display = 'none';
+        let myName = "";
+
+        // 입장하기
+        function join() {
+            const input = document.getElementById('name-input');
+            if(!input.value) return alert("이름을 입력해주세요!");
+            myName = input.value;
+            socket.emit('joinGame', myName);
+            document.getElementById('login-area').style.display = 'none';
+            document.getElementById('waiting-area').style.display = 'block';
         }
-        socket.on('gameOver', (d) => {
-            document.getElementById('msg').innerText = d.loser === socket.id ? "당신이 쓰러뜨렸습니다! (패배)" : "상대방이 쓰러뜨렸습니다! (승리)";
+
+        socket.on('playerUpdate', (players) => {
+            const list = document.getElementById('player-list');
+            list.innerHTML = players.map(p => `<div>👤 ${p.name} ${p.host ? '(방장)' : ''}</div>`).join('');
+            
+            const me = players.find(p => p.id === socket.id);
+            if (me && me.host) {
+                document.getElementById('start-btn').style.display = 'inline-block';
+                document.getElementById('host-msg').innerText = "당신은 방장입니다. 인원이 모이면 시작을 누르세요.";
+            } else {
+                document.getElementById('host-msg').innerText = "방장이 게임을 시작하기를 기다리고 있습니다...";
+            }
+        });
+
+        // 게임 시작 시 화면 전환
+        socket.on('gameBegin', (data) => {
+            document.getElementById('lobby').style.display = 'none';
+            document.getElementById('game-screen').style.display = 'block';
+            updateUI(data.sand, data.currentTurn, data.order);
+        });
+
+        socket.on('updateState', (data) => {
+            updateUI(data.sand, data.currentTurn);
+        });
+
+        function updateUI(sand, currentTurnId, order = null) {
+            document.getElementById('sand').style.height = (sand * 1.5) + 'px'; // 시각적으로 좀 더 크게
+            document.getElementById('stick').style.transform = `rotate(${(100-sand)/3}deg)`;
+            
+            // 순서 목록 업데이트
+            if (order) {
+                const orderDiv = document.getElementById('order-list');
+                orderDiv.innerHTML = order.map(p => `<div id="p-${p.id}">${p.name}</div>`).join('');
+            }
+
+            // 현재 순서 강조
+            const orderList = document.getElementById('order-list').children;
+            for (let el of orderList) {
+                el.className = el.id === `p-${currentTurnId}` ? 'active-turn' : '';
+            }
+
+            const myTurn = currentTurnId === socket.id;
+            document.getElementById('msg').innerText = myTurn ? "📢 내 차례입니다!" : "⌛ 상대방 차례...";
+            document.getElementById('ui').style.display = myTurn ? 'block' : 'none';
+        }
+
+        function take() {
+            const val = parseInt(document.getElementById('range').value);
+            socket.emit('takeSand', val);
+        }
+
+        socket.on('gameOver', (data) => {
+            document.getElementById('msg').innerText = `💥 ${data.loserName}님이 나뭇가지를 쓰러뜨렸습니다!`;
             document.getElementById('stick').style.transform = "rotate(90deg)";
             document.getElementById('ui').style.display = 'none';
         });
