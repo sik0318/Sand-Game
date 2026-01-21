@@ -10,7 +10,7 @@
         #lobby { background: white; padding: 20px; border-radius: 15px; max-width: 400px; margin: 50px auto; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
         .rule-box { background: #fffde7; padding: 15px; border: 1px solid #ffe082; text-align: left; font-size: 0.9rem; margin-bottom: 20px; line-height: 1.6; }
         
-        #game-screen { display: none; height: 100vh; position: relative; }
+        #game-screen { display: none; height: 100vh; position: relative; transition: transform 1.5s ease-out; } 
         #center-container { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 100%; }
         
         #sand { width: 220px; background: #edc9af; margin: 0 auto; transition: height 0.5s; border-radius: 110px 110px 0 0; position: relative; z-index: 2; }
@@ -26,15 +26,15 @@
         #side-panel { position: fixed; top: 10px; right: 10px; background: white; padding: 10px; border-radius: 10px; border: 1px solid #ddd; z-index: 100; }
         .active-turn { color: red; font-weight: bold; background: #ffeb3b; }
         
-        /* 컨트롤 영역: 게임 중일 때만 표시 */
         .controls { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); width: 85%; z-index: 100; display: none; }
         
         button { padding: 10px 20px; font-size: 16px; background: #d2691e; color: white; border: none; border-radius: 10px; cursor: pointer; margin: 5px; }
         #msg { position: fixed; top: 60px; width: 100%; font-size: 22px; font-weight: bold; padding: 0 10px; box-sizing: border-box; min-height: 80px; z-index: 110; }
         
-        /* 결과 및 재시작 영역: 게임 종료 시 모래산 위쪽에 배치 */
-        #result-area { display: none; margin-bottom: 20px; padding: 10px; background: rgba(255, 255, 255, 0.8); border-radius: 15px; width: 280px; margin-left: auto; margin-right: auto; }
+        #result-area { display: none; margin-bottom: 20px; padding: 10px; background: rgba(255, 255, 255, 0.9); border-radius: 15px; width: 280px; margin-left: auto; margin-right: auto; z-index: 120; position: relative; }
         .small-btn { font-size: 14px; background: #5d4037; display: block; width: 80%; margin: 10px auto; }
+        
+        .zoom-in { transform: scale(2.5) translateY(10%); }
     </style>
 </head>
 <body>
@@ -67,7 +67,6 @@
         
         <div id="center-container">
             <div id="hand">✋</div>
-            
             <div id="result-area">
                 <div id="final-results" style="font-size:14px; margin-bottom:10px;"></div>
                 <div id="restart-buttons" style="display:none;">
@@ -75,7 +74,6 @@
                     <button class="small-btn" onclick="socket.emit('startGame', 'excludeLoser')">패배자 제외하고 하기</button>
                 </div>
             </div>
-
             <div id="sand"><div id="stick"></div></div>
             <div id="prob-bar"><div id="prob-pointer"></div></div>
         </div>
@@ -91,7 +89,7 @@
     <script>
         const socket = io();
         let totalS = 100;
-        let isGameActive = false; // [2번] 게임 중인지 확인하는 변수 추가
+        let isGameActive = false;
 
         function join() {
             const val = document.getElementById('name-input').value;
@@ -110,7 +108,10 @@
 
         socket.on('gameBegin', (data) => {
             totalS = data.totalSand;
-            isGameActive = true; // 게임 활성화
+            isGameActive = true;
+            document.getElementById('game-screen').classList.remove('zoom-in');
+            document.getElementById('stick').style.transition = "transform 0.05s";
+            document.getElementById('stick').style.transform = "rotate(0deg)";
             document.getElementById('lobby').style.display = 'none';
             document.getElementById('result-area').style.display = 'none';
             document.getElementById('game-screen').style.display = 'block';
@@ -118,24 +119,20 @@
         });
 
         socket.on('updateState', (data) => {
-            if(!isGameActive) return; // [2번] 게임 끝났으면 실행 안함
-            
+            if(!isGameActive) return;
             const hand = document.getElementById('hand');
             hand.className = 'hand-anim';
             setTimeout(() => { hand.className = ''; }, 800);
-            
             shakeStick(data.chance);
-            
             setTimeout(() => {
                 if(isGameActive) updateUI(data.sand, data.currentTurn);
             }, 1800);
         });
 
-        function shakeStick(chance) {
+        function shakeStick(chance, onComplete) {
             const stick = document.getElementById('stick');
             const shakeCount = 20 + (chance * 40); 
             const intensity = 2 + (chance * 15);
-            
             let count = 0;
             const interval = setInterval(() => {
                 const angle = (Math.random() - 0.5) * intensity;
@@ -144,27 +141,21 @@
                 if(count > shakeCount) {
                     clearInterval(interval);
                     stick.style.transform = `rotate(0deg)`;
+                    if(onComplete) onComplete();
                 }
             }, 50);
         }
 
         function updateUI(sand, currentTurnId, order = null) {
             if(!isGameActive) return;
-
             document.getElementById('sand').style.height = (sand * 1.5) + 'px';
             const chance = (totalS - sand) / totalS;
             document.getElementById('prob-pointer').style.left = (chance * 100) + '%';
-
-            if (order) {
-                document.getElementById('order-list').innerHTML = order.map(p => `<div id="p-${p.id}">${p.name}</div>`).join('');
-            }
+            if (order) document.getElementById('order-list').innerHTML = order.map(p => `<div id="p-${p.id}">${p.name}</div>`).join('');
             const ops = document.getElementById('order-list').children;
             for (let el of ops) el.className = el.id === `p-${currentTurnId}` ? 'active-turn' : '';
-
             const myTurn = currentTurnId === socket.id;
             document.getElementById('msg').innerText = myTurn ? "📢 내 차례!" : "⌛ 대기 중...";
-            
-            // [2번] 내 차례여도 게임이 활성 상태일 때만 UI를 보여줌
             document.getElementById('ui').style.display = myTurn ? 'block' : 'none';
         }
 
@@ -173,27 +164,28 @@
         }
 
         socket.on('gameOver', (data) => {
-            isGameActive = false; // [2번] 게임 비활성화 (버그 방지)
-            
-            // 상단 메시지 업데이트
-            document.getElementById('msg').innerHTML = `<span style="color:red">💥 패배: ${data.loserName}</span>`;
-            
-            // [1번] 중앙 결과창 표시 및 내용 삽입
-            document.getElementById('result-area').style.display = 'block';
-            document.getElementById('final-results').innerHTML = `<b>📊 최종 획득량</b><br>${data.results}`;
-            
-            // 나무막대 쓰러짐 연출
-            document.getElementById('stick').style.transform = "rotate(90deg) translateY(50px)";
-            
-            // [2번] 슬라이드 UI 즉시 숨김
+            isGameActive = false;
             document.getElementById('ui').style.display = 'none';
+            const msg = document.getElementById('msg');
+            msg.innerText = "어... 어?! 막대가...!!!";
             
-            // 방장에게만 재시작 버튼 표시
-            if (data.hostId === socket.id) {
-                document.getElementById('restart-buttons').style.display = 'block';
-            }
+            shakeStick(1.0, () => {
+                document.getElementById('game-screen').classList.add('zoom-in');
+                const stick = document.getElementById('stick');
+                stick.style.transition = "transform 2.5s ease-in-out"; 
+                stick.style.transform = "rotate(90deg) translateY(50px)";
+                
+                setTimeout(() => {
+                    document.getElementById('game-screen').classList.remove('zoom-in');
+                    msg.innerHTML = `<span style="color:red">💥 패배: ${data.loserName}</span>`;
+                    document.getElementById('result-area').style.display = 'block';
+                    document.getElementById('final-results').innerHTML = `<b>📊 최종 획득량</b><br>${data.results}`;
+                    if (data.hostId === socket.id) {
+                        document.getElementById('restart-buttons').style.display = 'block';
+                    }
+                }, 2500);
+            });
         });
     </script>
 </body>
 </html>
-
