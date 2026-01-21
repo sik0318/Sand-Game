@@ -13,7 +13,6 @@
         #game-screen { display: none; height: 100vh; position: relative; transition: transform 1.5s ease-out; } 
         #center-container { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 100%; }
         
-        /* [2번] 막대를 모래 뒤로 보내기 위해 z-index 조절 */
         #sand { width: 220px; background: #edc9af; margin: 0 auto; transition: height 0.5s; border-radius: 110px 110px 0 0; position: relative; z-index: 2; }
         #stick { width: 10px; height: 160px; background: #8b4513; position: absolute; bottom: 85%; left: 105px; border-radius: 5px; transition: transform 0.05s; transform-origin: bottom; z-index: 1; }
         
@@ -110,12 +109,18 @@
         socket.on('gameBegin', (data) => {
             totalS = data.totalSand;
             isGameActive = true;
+            
+            // 초기화: 줌 해제 및 막대 세우기
             document.getElementById('game-screen').classList.remove('zoom-in');
-            document.getElementById('stick').style.transition = "transform 0.05s";
-            document.getElementById('stick').style.transform = "rotate(0deg)";
+            const stick = document.getElementById('stick');
+            stick.style.transition = "transform 0.05s"; 
+            stick.style.transform = "rotate(0deg)";
+            
             document.getElementById('lobby').style.display = 'none';
             document.getElementById('result-area').style.display = 'none';
+            document.getElementById('restart-buttons').style.display = 'none'; // 버튼 영역 숨기기
             document.getElementById('game-screen').style.display = 'block';
+            
             updateUI(data.sand, data.currentTurn, data.order);
         });
 
@@ -124,7 +129,9 @@
             const hand = document.getElementById('hand');
             hand.className = 'hand-anim';
             setTimeout(() => { hand.className = ''; }, 800);
+            
             shakeStick(data.chance);
+            
             setTimeout(() => {
                 if(isGameActive) updateUI(data.sand, data.currentTurn);
             }, 1800);
@@ -168,27 +175,31 @@
             isGameActive = false;
             document.getElementById('ui').style.display = 'none';
             
-            // [3번] 멘트를 미리 바꾸지 않고 평소처럼 흔들리게 시작
-            // 플레이어는 흔들림이 멈출 때까지 결과를 모름
+            // 흔들림 연출 시작
             shakeStick(1.0, () => {
-                const msg = document.getElementById('msg');
-                msg.innerText = "앗... 막대가...!!!"; // 흔들림이 완전히 끝난 직후에 멘트 표시
-                
-                document.getElementById('game-screen').classList.add('zoom-in');
-                const stick = document.getElementById('stick');
-                stick.style.transition = "transform 2.5s ease-in-out"; 
-                stick.style.transform = "rotate(90deg) translateY(50px)";
-                
+                // 서버에서 보낸 원인이 '나뭇가지를 쓰러뜨렸습니다'일 때만 실제로 쓰러뜨림
+                // 5라운드 종료인 경우 이미 막대가 안 쓰러진 상태이므로 연출을 다르게 할 수 있음
+                const isCollapse = data.reason.includes("쓰러뜨렸습니다");
+
+                if (isCollapse) {
+                    const msg = document.getElementById('msg');
+                    msg.innerText = "앗... 막대가...!!!";
+                    document.getElementById('game-screen').classList.add('zoom-in');
+                    const stick = document.getElementById('stick');
+                    stick.style.transition = "transform 2.5s ease-in-out"; 
+                    stick.style.transform = "rotate(90deg) translateY(50px)";
+                }
+
                 setTimeout(() => {
                     document.getElementById('game-screen').classList.remove('zoom-in');
-                    msg.innerHTML = `<span style="color:red">💥 패배: ${data.loserName}</span>`;
+                    document.getElementById('msg').innerHTML = `<span style="color:red">💥 패배: ${data.loserName}</span>`;
                     document.getElementById('result-area').style.display = 'block';
-                    // [1번] 최종 모래 획득량으로 문구 수정
-                    document.getElementById('final-results').innerHTML = `<b>📊 최종 모래 획득량</b><br>${data.results}`;
+                    document.getElementById('final-results').innerHTML = `<b>📊 최종 모래 획득량</b><br>${data.results}<br><br><small>${data.reason}</small>`;
+                    
                     if (data.hostId === socket.id) {
                         document.getElementById('restart-buttons').style.display = 'block';
                     }
-                }, 2500);
+                }, isCollapse ? 2500 : 500); // 쓰러질 때는 길게, 아닐 때는 짧게 결과 표시
             });
         });
     </script>
