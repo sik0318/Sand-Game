@@ -1,90 +1,44 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>모래더미 나뭇가지 게임</title>
-  <script src="/socket.io/socket.io.js"></script>
-  <style>
-    body { text-align: center; font-family: sans-serif; background: #f0e68c; overflow: hidden; }
-    #sand-pile { 
-      width: 200px; height: 100px; background: #edc9af; 
-      margin: 100px auto 0; border-radius: 100px 100px 0 0; 
-      transition: all 0.5s; position: relative;
-    }
-    #stick { 
-      width: 10px; height: 120px; background: #8b4513; 
-      position: absolute; bottom: 80px; left: 95px; 
-      transition: transform 0.5s; transform-origin: bottom center;
-    }
-    .controls { margin-top: 50px; background: white; padding: 20px; border-radius: 20px; display: none; }
-    #status { font-weight: bold; font-size: 1.2rem; margin: 20px; }
-  </style>
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>모래성 게임</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        body { text-align: center; font-family: sans-serif; background: #fdf5e6; }
+        #sand { width: 200px; background: #edc9af; margin: 20px auto; transition: 0.5s; border-radius: 100px 100px 0 0; position: relative; }
+        #stick { width: 10px; height: 150px; background: #8b4513; position: absolute; bottom: 80%; left: 95px; transition: 0.5s; transform-origin: bottom; }
+        .controls { display: none; margin-top: 20px; }
+        button { padding: 10px 20px; font-size: 16px; background: #d2691e; color: white; border: none; border-radius: 5px; }
+    </style>
 </head>
 <body>
-  <h1>⏳ 모래성 게임</h1>
-  <div id="status">대기 중...</div>
-  <button id="start-btn" onclick="startGame()" style="display:none; padding:15px; font-size:1.2rem;">게임 시작 (방장)</button>
-
-  <div id="sand-pile">
-    <div id="stick"></div>
-  </div>
-
-  <div class="controls" id="player-controls">
-    <p>가져갈 모래 양: <b id="val-display">5</b></p>
-    <input type="range" id="sand-slider" min="1" max="10" value="5" oninput="document.getElementById('val-display').innerText=this.value">
-    <br><br>
-    <button onclick="takeSand()" style="padding:10px 20px;">모래 가져오기!</button>
-  </div>
-
-  <script>
-    const socket = io();
-    let myId;
-
-    socket.on('connect', () => { myId = socket.id; });
-
-    socket.on('updatePlayers', ({ players, gameStarted }) => {
-      const me = players.find(p => p.id === myId);
-      if (me && me.host && !gameStarted) {
-        document.getElementById('start-btn').style.display = 'inline-block';
-        document.getElementById('status').innerText = "당신은 방장입니다. 시작을 눌러주세요.";
-      }
-    });
-
-    function startGame() { socket.emit('startGame'); }
-
-    socket.on('gameStarted', ({ sandAmount, currentTurn }) => {
-      document.getElementById('start-btn').style.display = 'none';
-      updateUI(sandAmount, currentTurn);
-    });
-
-    socket.on('nextTurn', ({ sandAmount, currentTurn }) => {
-      updateUI(sandAmount, currentTurn);
-    });
-
-    function updateUI(sand, turn) {
-      document.getElementById('sand-pile').style.transform = `scale(${sand/100})`;
-      document.getElementById('stick').style.transform = `rotate(${(100-sand)/4}deg)`;
-      
-      if (turn === myId) {
-        document.getElementById('status').innerText = "★ 당신의 차례입니다! ★";
-        document.getElementById('player-controls').style.display = 'block';
-      } else {
-        document.getElementById('status').innerText = "상대방의 차례를 기다리는 중...";
-        document.getElementById('player-controls').style.display = 'none';
-      }
-    }
-
-    function takeSand() {
-      const amount = parseInt(document.getElementById('sand-slider').value);
-      socket.emit('takeSand', amount);
-    }
-
-    socket.on('gameOver', ({ loser }) => {
-      const result = loser === myId ? "당신이 나뭇가지를 쓰러뜨렸습니다! 패배!" : "상대방이 나뭇가지를 쓰러뜨렸습니다! 승리!";
-      document.getElementById('status').innerText = result;
-      document.getElementById('player-controls').style.display = 'none';
-      document.getElementById('stick').style.transform = `rotate(90deg)`; // 쓰러짐
-    });
-  </script>
+    <h2 id="msg">플레이어를 기다리는 중...</h2>
+    <button id="start-btn" style="display:none;" onclick="socket.emit('startGame')">게임 시작!</button>
+    <div id="sand"><div id="stick"></div></div>
+    <div class="controls" id="ui">
+        <input type="range" min="1" max="10" value="5" id="range" oninput="document.getElementById('v').innerText=this.value">
+        <p>가져갈 양: <span id="v">5</span></p>
+        <button onclick="socket.emit('takeSand', parseInt(document.getElementById('range').value))">가져오기</button>
+    </div>
+    <script>
+        const socket = io();
+        socket.on('playerUpdate', (p) => { if(p[0].id === socket.id) document.getElementById('start-btn').style.display = 'inline-block'; });
+        socket.on('gameBegin', (d) => update(d.sand, d.turn));
+        socket.on('updateState', (d) => update(d.sand, d.nextTurn));
+        function update(s, t) {
+            document.getElementById('sand').style.height = s + 'px';
+            document.getElementById('stick').style.transform = `rotate(${(100-s)/4}deg)`;
+            const myTurn = t === socket.id;
+            document.getElementById('msg').innerText = myTurn ? "내 차례!" : "상대 차례...";
+            document.getElementById('ui').style.display = myTurn ? 'block' : 'none';
+            document.getElementById('start-btn').style.display = 'none';
+        }
+        socket.on('gameOver', (d) => {
+            document.getElementById('msg').innerText = d.loser === socket.id ? "당신이 쓰러뜨렸습니다! (패배)" : "상대방이 쓰러뜨렸습니다! (승리)";
+            document.getElementById('stick').style.transform = "rotate(90deg)";
+            document.getElementById('ui').style.display = 'none';
+        });
+    </script>
 </body>
 </html>
