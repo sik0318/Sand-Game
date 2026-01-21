@@ -8,10 +8,11 @@ app.use(express.static('public'));
 let players = [];
 let gameOrder = [];
 let sandAmount = 100;
-let totalSand = 100; // 초기 총량 저장용
+let totalSand = 100;
 let turnIndex = 0;
-let roundCount = 0; // 전체 턴 횟수
+let roundCount = 0;
 let isStarted = false;
+let lastLoserId = ""; // 마지막 패배자 ID 저장용
 
 function shuffle(array) {
     for (let i = array.length - 1; i > 0; i--) {
@@ -28,30 +29,38 @@ io.on('connection', (socket) => {
         io.emit('playerUpdate', players);
     });
 
-    socket.on('startGame', () => {
-        if (players.length > 0 && socket.id === players[0].id) {
-            // [1번] 인원수에 비례해 모래 양 설정 (1인당 40)
-            totalSand = players.length * 40;
-            sandAmount = totalSand;
-            isStarted = true;
-            turnIndex = 0;
-            roundCount = 0;
-            players.forEach(p => p.score = 0); // 점수 초기화
-            gameOrder = shuffle([...players]);
-            io.emit('gameBegin', { 
-                sand: sandAmount, 
-                totalSand: totalSand,
-                order: gameOrder, 
-                currentTurn: gameOrder[turnIndex].id 
-            });
+    // 게임 시작 통합 함수
+    socket.on('startGame', (mode) => {
+        if (players.length === 0 || socket.id !== players[0].id) return;
+
+        // [2번] 패배자 제외 모드인 경우
+        if (mode === 'excludeLoser' && lastLoserId) {
+            players = players.filter(p => p.id !== lastLoserId);
+            if (players.length > 0) players[0].host = true;
         }
+
+        if (players.length < 1) return;
+
+        totalSand = players.length * 40;
+        sandAmount = totalSand;
+        isStarted = true;
+        turnIndex = 0;
+        roundCount = 0;
+        players.forEach(p => p.score = 0);
+        
+        gameOrder = shuffle([...players]); // 무조건 순서 랜덤
+        io.emit('gameBegin', { 
+            sand: sandAmount, 
+            totalSand: totalSand,
+            order: gameOrder, 
+            currentTurn: gameOrder[turnIndex].id 
+        });
     });
 
     socket.on('takeSand', (amount) => {
         if (!isStarted || socket.id !== gameOrder[turnIndex].id) return;
 
         sandAmount -= amount;
-        // 점수(가져간 양) 기록
         const p = players.find(player => player.id === socket.id);
         if(p) p.score += amount;
         
@@ -61,19 +70,18 @@ io.on('connection', (socket) => {
         const isFallen = Math.random() < fallChance;
 
         if (isFallen || sandAmount <= 0) {
+            lastLoserId = gameOrder[turnIndex].id;
             finishGame(gameOrder[turnIndex].name, "나뭇가지를 쓰러뜨렸습니다!");
         } else {
-            // [5번] 모든 플레이어 5턴 종료 체크 (인원수 * 5)
             if (roundCount >= gameOrder.length * 5) {
-                // 모래를 가장 적게 가져간 사람 찾기
                 const loser = players.reduce((prev, curr) => (prev.score < curr.score) ? prev : curr);
-                finishGame(loser.name, "5라운드 종료! 모래를 가장 적게 가져와 패배했습니다.");
+                lastLoserId = loser.id;
+                finishGame(loser.name, "5라운드 종료! 가장 적게 가져와 패배했습니다.");
             } else {
                 turnIndex = (turnIndex + 1) % gameOrder.length;
                 io.emit('updateState', { 
                     sand: sandAmount, 
                     currentTurn: gameOrder[turnIndex].id,
-                    lastAmount: amount,
                     chance: fallChance
                 });
             }
@@ -81,9 +89,8 @@ io.on('connection', (socket) => {
     });
 
     function finishGame(loserName, reason) {
-        // [6번] 각 플레이어의 최종 획득량 포함 안내
         const results = players.map(p => `${p.name}: ${p.score}`).join(', ');
-        io.emit('gameOver', { loserName, reason, results });
+        io.emit('gameOver', { loserName, reason, results, hostId: players[0].id });
         isStarted = false;
     }
 
